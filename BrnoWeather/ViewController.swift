@@ -6,6 +6,7 @@
 //  Copyright © 2016 Jiří Hroník. All rights reserved.
 //
 
+import Foundation
 import UIKit
 
 class ViewController: UIViewController {
@@ -14,27 +15,37 @@ class ViewController: UIViewController {
     @IBOutlet weak var locationLabel: UILabel!
     @IBOutlet weak var weatherLabel: UILabel!
     @IBOutlet weak var weatherImage: UIImageView!
-    @IBOutlet weak var refreshActivityIndicator: UIActivityIndicatorView!
+    @IBOutlet weak var scrollView: UIScrollView!
     
-    @IBAction func refreshButton(sender: UIButton) {
-        refreshActivityIndicator.hidden = false
-        refreshActivityIndicator.startAnimating()
-        getWeatherDataFromUrl("https://api.wunderground.com/api/32ca3e99da3f6f09/conditions/q/CA/Brno.json")
-    }
+    var refreshControl: UIRefreshControl = UIRefreshControl()
+    var apiURL: String = "https://api.wunderground.com/api/32ca3e99da3f6f09/conditions/q/CA/Brno.json"
+    
+    var weather: String!
+    var weatherImg: UIImage!
+    var location: String!
+    var temperature: String!
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        refreshActivityIndicator.hidden = true
         // Do any additional setup after loading the view, typically from a nib.
         
-        getWeatherDataFromUrl("https://api.wunderground.com/api/32ca3e99da3f6f09/conditions/q/CA/Brno.json")
+        self.refreshControl.attributedTitle = NSAttributedString(string: "Pull to refresh")
+        self.refreshControl.addTarget(self, action: "refreshData:", forControlEvents: UIControlEvents.ValueChanged)
+        
+        self.scrollView.addSubview(self.refreshControl)
+        self.scrollView.alwaysBounceVertical = true
+        
+        getWeatherDataFromUrl(self.apiURL)
     }
     
-    override func viewDidAppear(animated: Bool) {}
-
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()
         // Dispose of any resources that can be recreated.
+    }
+    
+    func refreshData(sender: AnyObject) {
+        getWeatherDataFromUrl(self.apiURL)
+        self.refreshControl.endRefreshing()
     }
     
     func getWeatherDataFromUrl(urlString: String) {
@@ -43,21 +54,32 @@ class ViewController: UIViewController {
         let task = NSURLSession.sharedSession().dataTaskWithURL(url!) { (data, response, error) in
             dispatch_sync(dispatch_get_main_queue(), {
                 if (error == nil) {
-                    self.parseJson(data!)
+                    self.parseJSON(data!)
                 } else {
-                    // construct new UIAlertController
-                    let dataLoadingError = UIAlertController(title: "Error loading data", message: "Error occured while loading data from URL", preferredStyle: UIAlertControllerStyle.Alert)
-                    // adds a dismiss button
-                    dataLoadingError.addAction(UIAlertAction(title: "Dismiss", style: UIAlertActionStyle.Cancel, handler: nil))
-                    self.presentViewController(dataLoadingError, animated: true, completion: nil) // display
+                    self.throwCustomAlert("Error loading data", message: "Error occured while loading data from URL")
                 }
             })
         }
         task.resume()
-        
     }
     
-    func parseJson(dataFromUrl: NSData) {
+    func updateUI() {
+        temperatureLabel.text = self.temperature
+        weatherLabel.text = self.weather
+        locationLabel.text = self.location
+        weatherImage.image = self.weatherImg
+    }
+    
+    func throwCustomAlert(title: String, message: String) {
+        // construct new UIAlertController
+        let alert = UIAlertController(title: title, message: message, preferredStyle: UIAlertControllerStyle.Alert)
+        // adds a dismiss button
+        alert.addAction(UIAlertAction(title: "Dismiss", style: UIAlertActionStyle.Cancel, handler: nil))
+        // display
+        self.presentViewController(alert, animated: true, completion: nil)
+    }
+    
+    func parseJSON(dataFromUrl: NSData) {
         do {
             let json = try NSJSONSerialization.JSONObjectWithData(dataFromUrl, options: []) as! NSDictionary
             if let currentObservation = json["current_observation"] as? NSDictionary {
@@ -65,28 +87,26 @@ class ViewController: UIViewController {
                 print("Temperature is: \(currentObservation["temp_c"]!)")
                 print("Image is: \(currentObservation["image"]!.valueForKey("url")!)")
                 
-                locationLabel.text = "\(currentObservation["display_location"]!.valueForKey("full")!)"
-                temperatureLabel.text = "\(currentObservation["temp_c"]!) °C"
-                weatherLabel.text = "\(currentObservation["weather"]!)"
+                self.location = "\(currentObservation["display_location"]!.valueForKey("full")!)"
+                self.temperature = "\(currentObservation["temp_c"]!) °C"
+                self.weather = "\(currentObservation["weather"]!)"
                 
                 let iconImageURLString = "\(currentObservation["icon_url"]!)"
                 let iconImageURL = NSURL(string: iconImageURLString)
-                
+        
                 if let iconImageData = NSData(contentsOfURL: iconImageURL!) {
-                    weatherImage.image = UIImage(data: iconImageData)
+                    self.weatherImg = UIImage(data: iconImageData)
                 }
             }
+            
+            updateUI()
             
         }
         
         catch {
-            let parseJsonAlert = UIAlertController(title: "JSON Parser Error", message: "Error occured while parsing JSON", preferredStyle: UIAlertControllerStyle.Alert)
-            parseJsonAlert.addAction(UIAlertAction(title: "Dismiss", style: UIAlertActionStyle.Cancel, handler: nil))
-            presentViewController(parseJsonAlert, animated: true, completion: nil)
+            self.throwCustomAlert("JSON Parser Error", message: "Error occured while parsing JSON")
         }
         
-        refreshActivityIndicator.stopAnimating()
-        refreshActivityIndicator.hidden = true
     }
 
 }
