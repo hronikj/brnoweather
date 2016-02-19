@@ -17,25 +17,32 @@ class ViewController: UIViewController {
     @IBOutlet weak var weatherImage: UIImageView!
     @IBOutlet weak var scrollView: UIScrollView!
     
+    @IBAction func detailButtonPush(sender: UIBarButtonItem) {
+        
+    }
+    
     var refreshControl: UIRefreshControl = UIRefreshControl()
-    var apiURL: String = "https://api.wunderground.com/api/32ca3e99da3f6f09/conditions/q/CA/Brno.json"
+    var jsonURI: String = "https://api.wunderground.com/api/7ca42c8c31208b05/conditions/q/CA/Brno.json"
     
     var weather: String!
     var weatherImg: UIImage!
     var location: String!
     var temperature: String!
+    var data: NSDictionary!
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        // Do any additional setup after loading the view, typically from a nib.
         
+        // add pull to refresh
         self.refreshControl.attributedTitle = NSAttributedString(string: "Pull to refresh")
         self.refreshControl.addTarget(self, action: "refreshData:", forControlEvents: UIControlEvents.ValueChanged)
         
-        self.scrollView.addSubview(self.refreshControl)
+        // scroll view needs to bounce for pull to refresh
         self.scrollView.alwaysBounceVertical = true
+        self.scrollView.addSubview(self.refreshControl)
         
-        getWeatherDataFromUrl(self.apiURL)
+        getWeatherDataFromUrl(self.jsonURI)
+        updateUI()
     }
     
     override func didReceiveMemoryWarning() {
@@ -43,24 +50,18 @@ class ViewController: UIViewController {
         // Dispose of any resources that can be recreated.
     }
     
-    func refreshData(sender: AnyObject) {
-        getWeatherDataFromUrl(self.apiURL)
-        self.refreshControl.endRefreshing()
+    override func prepareForSegue(segue: UIStoryboardSegue, sender: AnyObject?) {
+        if segue.identifier == "ShowDetailSegue" {
+            if let destinationViewController = segue.destinationViewController as? DetailViewController {
+                destinationViewController.data = self.data;
+            }
+        }
     }
     
-    func getWeatherDataFromUrl(urlString: String) {
-        print("! getWeatherDataFromUrl")
-        let url = NSURL(string: urlString)
-        let task = NSURLSession.sharedSession().dataTaskWithURL(url!) { (data, response, error) in
-            dispatch_sync(dispatch_get_main_queue(), {
-                if (error == nil) {
-                    self.parseJSON(data!)
-                } else {
-                    self.throwCustomAlert("Error loading data", message: "Error occured while loading data from URL")
-                }
-            })
-        }
-        task.resume()
+    func refreshData(sender: AnyObject) {
+        getWeatherDataFromUrl(self.jsonURI)
+        updateUI()
+        self.refreshControl.endRefreshing()
     }
     
     func updateUI() {
@@ -79,11 +80,34 @@ class ViewController: UIViewController {
         self.presentViewController(alert, animated: true, completion: nil)
     }
     
+    func getWeatherDataFromUrl(urlString: String) {
+        let url = NSURL(string: urlString)
+        let task = NSURLSession.sharedSession().dataTaskWithURL(url!) { (data, response, error) in
+            dispatch_sync(dispatch_get_main_queue(), {
+                if (error == nil) {
+                    self.parseJSON(data!)
+                } else {
+                    self.throwCustomAlert("Error loading data", message: "Error occured while loading data from URL")
+                }
+            })
+        }
+        task.resume()
+    }
+    
     func parseJSON(dataFromUrl: NSData) {
         do {
             let json = try NSJSONSerialization.JSONObjectWithData(dataFromUrl, options: []) as! NSDictionary
+            
+            if let possibleError = json["response"]?.valueForKey("error")?.valueForKey("type") {
+                // print(json["response"]!.valueForKey("error")!.valueForKey("type")!)
+                if (possibleError as! String == "invalidkey") {
+                    self.throwCustomAlert("Invalid API Key", message: "The API key is not valid due to exceeding rate plan!")
+                    return
+                }
+            }
+            
             if let currentObservation = json["current_observation"] as? NSDictionary {
-                print(currentObservation.allKeys)
+                // print(currentObservation.allKeys)
                 print("Temperature is: \(currentObservation["temp_c"]!)")
                 print("Image is: \(currentObservation["image"]!.valueForKey("url")!)")
                 
@@ -97,10 +121,10 @@ class ViewController: UIViewController {
                 if let iconImageData = NSData(contentsOfURL: iconImageURL!) {
                     self.weatherImg = UIImage(data: iconImageData)
                 }
+                
+                self.data = currentObservation
             }
-            
             updateUI()
-            
         }
         
         catch {
